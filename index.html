@@ -24,7 +24,7 @@
 <main>
   <h1>BANANA TOWER</h1>
   <div class="frame"><canvas id="game" width="800" height="720" aria-label="Banana Tower game. Climb the ladders to rescue the bananas."></canvas></div>
-  <p class="help">← → MOVE &nbsp; ↑ / ↓ CLIMB &nbsp; SPACE JUMP &nbsp; X SLICE &nbsp; ENTER START / RESTART</p>
+  <p class="help">← → MOVE &nbsp; ↑ / ↓ CLIMB &nbsp; SPACE JUMP &nbsp; X SLICE &nbsp; ENTER START / PLAY AGAIN &nbsp; R RESTART</p>
   <div class="controls" aria-label="Touch controls">
     <button data-key="ArrowLeft" aria-label="Move left">◀</button>
     <button data-key="ArrowRight" aria-label="Move right">▶</button>
@@ -32,7 +32,9 @@
     <button data-key="ArrowDown" aria-label="Climb down">▼</button>
     <button data-key="Space">JUMP</button>
     <button data-key="KeyX">SLICE</button>
-    <button data-key="Enter">START</button>
+    <button id="start" data-key="Enter">START</button>
+    <button id="again" data-key="Enter" hidden>PLAY AGAIN</button>
+    <button id="restart" data-key="KeyR" hidden>RESTART</button>
   </div>
   <p class="note">Two hits cost a life. Peels drop you a floor. Grab the katana on floor 2!</p>
 </main>
@@ -42,14 +44,15 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
-  const W = 800, H = 720, LEFT = 70, RIGHT = 730, FLOORS = 7;
+  const W = 800, H = 720, LEFT = 70, RIGHT = 730, INITIAL_FLOORS = 7;
   const keys = new Set(), pressed = new Set();
   const floorY = (floor, x) => 635 - floor * 75 + (floor % 2 === 0 ? 1 : -1) * (400 - x) * 0.035;
   const ladderX = floor => floor % 2 === 0 ? 700 : 100;
   const random = (a, b) => a + Math.random() * (b - a);
-  let state = "title", player, hazards, lives, hits, sword, spawnTimer, peelTimer, elapsed, deathTimer, danceTimer, notice, noticeTimer;
+  let state = "title", floorCount = INITIAL_FLOORS, player, hazards, lives, hits, sword, spawnTimer, peelTimer, elapsed, deathTimer, danceTimer, notice, noticeTimer;
 
-  function resetRun() {
+  function resetRun(floors = INITIAL_FLOORS) {
+    floorCount = floors;
     lives = 5; hits = 0; sword = false; hazards = [];
     spawnTimer = 1.3; peelTimer = 4; elapsed = 0; deathTimer = 0; danceTimer = 0;
     notice = ""; noticeTimer = 0;
@@ -60,13 +63,18 @@
     player = { x: 110, floor: 0, jump: 0, vy: 0, facing: 1, invulnerable: 1.5, attack: 0, climb: null, fall: null };
   }
   function flash(text) { notice = text; noticeTimer = 2; }
+  function hazardFloor() {
+    const min = Math.max(0, player.floor - 3);
+    const max = Math.min(floorCount - 1, player.floor + 3);
+    return Math.floor(random(min, max + 1));
+  }
   function watermelon() {
-    const floor = Math.floor(random(0, FLOORS));
+    const floor = hazardFloor();
     const direction = floor % 2 === 0 ? -1 : 1;
     hazards.push({ type: "melon", floor, x: direction < 0 ? RIGHT - 4 : LEFT + 4, direction, speed: random(75, 110) + floor * 3, angle: 0 });
   }
   function peel() {
-    const floor = Math.floor(random(0, FLOORS));
+    const floor = hazardFloor();
     hazards.push({ type: "peel", floor, x: random(155, 645), age: 0 });
   }
   function playerY() {
@@ -91,7 +99,12 @@
     } else flash("OUCH! ONE HIT LEFT");
   }
   function update(dt) {
-    if (pressed.has("Enter") && state !== "playing" && state !== "dying") resetRun();
+    if (state === "won") {
+      if (pressed.has("Enter")) resetRun(floorCount + 2);
+      else if (pressed.has("KeyR")) resetRun();
+      return;
+    }
+    if ((pressed.has("Enter") || pressed.has("KeyR")) && (state === "title" || state === "gameover")) resetRun();
     if (state === "dying" || state === "gameover") danceTimer += dt;
     if (state === "dying") {
       deathTimer += dt;
@@ -133,7 +146,7 @@
         if (player.jump <= 0) { player.jump = 0; player.vy = 0; }
       }
       if (player.jump === 0) {
-        if ((keys.has("ArrowUp") || keys.has("KeyW")) && player.floor < FLOORS - 1 && Math.abs(player.x - ladderX(player.floor)) < 22) {
+        if ((keys.has("ArrowUp") || keys.has("KeyW")) && player.floor < floorCount - 1 && Math.abs(player.x - ladderX(player.floor)) < 22) {
           const x = ladderX(player.floor);
           player.x = x; player.climb = { from: player.floor, to: player.floor + 1, x, t: 0 };
         } else if ((keys.has("ArrowDown") || keys.has("KeyS")) && player.floor > 0 && Math.abs(player.x - ladderX(player.floor - 1)) < 22) {
@@ -144,7 +157,10 @@
       if (!sword && player.floor === 1 && Math.abs(player.x - 400) < 24 && player.jump < 30) {
         sword = true; flash("KATANA FOUND! PRESS X");
       }
-      if (player.floor === 6 && player.x > 660 && player.jump < 35) state = "won";
+      if (player.floor === floorCount - 1 && player.x > 660 && player.jump < 35) {
+        state = "won";
+        return;
+      }
     }
     spawnTimer -= dt; peelTimer -= dt;
     if (spawnTimer <= 0) { watermelon(); spawnTimer = Math.max(0.65, 1.35 - elapsed / 300); }
@@ -173,7 +189,7 @@
   function text(str, x, y, size, color, align = "left") {
     ctx.fillStyle = color; ctx.font = `bold ${size}px monospace`; ctx.textAlign = align; ctx.fillText(str, x, y);
   }
-  function drawBackground() {
+  function drawBackground(camera) {
     rect(0, 0, W, H, "#18152b");
     for (let row = 0; row < 14; row++) {
       for (let col = 0; col < 13; col++) {
@@ -183,12 +199,16 @@
       }
     }
     rect(38, 90, 18, 580, "#3d3049"); rect(744, 90, 18, 580, "#3d3049");
-    for (let f = 0; f < FLOORS - 1; f++) {
+    ctx.save();
+    ctx.translate(0, camera);
+    for (let f = 0; f < floorCount - 1; f++) {
       const x = ladderX(f), top = floorY(f + 1, x), bottom = floorY(f, x);
+      if (bottom + camera < 50 || top + camera > H) continue;
       rect(x - 11, top, 4, bottom - top, "#b38a58"); rect(x + 7, top, 4, bottom - top, "#b38a58");
       for (let y = top + 8; y < bottom; y += 14) rect(x - 10, y, 20, 4, "#dfb779");
     }
-    for (let f = 0; f < FLOORS; f++) {
+    for (let f = 0; f < floorCount; f++) {
+      if (floorY(f, 400) + camera < 30 || floorY(f, 400) + camera > H + 20) continue;
       for (let x = LEFT; x < RIGHT; x += 8) {
         const y = floorY(f, x);
         rect(x, y, 9, 12, "#a54954");
@@ -197,6 +217,7 @@
       }
       text(String(f + 1), 48, floorY(f, 80) - 6, 13, "#a99ab1", "center");
     }
+    ctx.restore();
   }
   function drawBananas(x, y) {
     rect(x, y, 42, 25, "#64402e"); rect(x + 3, y + 4, 36, 16, "#9a6840");
@@ -271,9 +292,13 @@
       ctx.rotate(Math.sin(deathTimer * 3) * Math.min(deathTimer * 0.2, 0.25));
       ctx.translate(-W / 2, -H / 2);
     }
-    drawBackground();
-    drawBananas(675, floorY(6, 700) - 27);
-    drawVillain(590, floorY(6, 590));
+    const camera = player ? Math.max(0, 380 - playerY()) : 0;
+    drawBackground(camera);
+    ctx.translate(0, camera);
+    const topFloor = floorCount - 1;
+    drawBananas(675, floorY(topFloor, 700) - 27);
+    const villainY = floorY(topFloor, 590);
+    drawVillain(590, state === "dying" || state === "gameover" ? Math.max(villainY, 145 - camera) : villainY);
     if (!sword) {
       const y = floorY(1, 400);
       rect(395, y - 28, 4, 20, "#e9f4e9"); rect(392, y - 10, 11, 4, "#e3bc5e"); rect(396, y - 7, 3, 7, "#7b5145");
@@ -283,7 +308,7 @@
       if (state === "dying") {
         const blend = Math.min(deathTimer * 3, 1);
         const orbitX = 400 + Math.cos(deathTimer * 7) * 210;
-        const orbitY = 360 + Math.sin(deathTimer * 7) * 200;
+        const orbitY = 360 + Math.sin(deathTimer * 7) * 200 - camera;
         drawMonkey(player.x + (orbitX - player.x) * blend, playerY() + (orbitY - playerY()) * blend);
       } else drawMonkey(player.x, playerY());
     }
@@ -292,13 +317,16 @@
     text("LIVES " + (player ? lives : 5), 22, 30, 18, "#ffe568");
     text("HITS " + (player ? hits : 0) + "/2", 190, 30, 18, "#ff9e97");
     text(sword ? "KATANA READY" : "FIND THE KATANA", 400, 30, 16, sword ? "#a3f2d1" : "#bfb2c8", "center");
-    text("FLOOR " + (player ? player.floor + 1 : 1) + "/7", 775, 30, 18, "#ffe568", "right");
+    text("FLOOR " + (player ? player.floor + 1 : 1) + "/" + floorCount, 775, 30, 18, "#ffe568", "right");
     if (noticeTimer > 0 && state === "playing") text(notice, 400, 78, 16, "#fff0a5", "center");
     if (state === "title") overlay("RESCUE THE BANANAS!", ["Climb 7 floors and dodge rolling watermelons.", "Peels make you slip; two hits cost a life.", "Press ENTER or START to play"]);
     if (state === "gameover") overlay("GAME OVER", ["The bananas remain trapped...", "Press ENTER or START to try again"], "#ff8e88");
-    if (state === "won") overlay("BANANAS RESCUED!", ["You made it to the top of the tower!", "Press ENTER or START to play again"]);
+    if (state === "won") overlay("BANANAS RESCUED!", [`Next tower: ${floorCount + 2} floors and 5 fresh lives!`, "ENTER / PLAY AGAIN: taller tower", "R / RESTART: back to 7 floors"]);
+    document.getElementById("start").hidden = state === "won";
+    document.getElementById("again").hidden = state !== "won";
+    document.getElementById("restart").hidden = state !== "won";
   }
-  const handled = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyX", "Enter", "KeyW", "KeyA", "KeyS", "KeyD"]);
+  const handled = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyX", "Enter", "KeyR", "KeyW", "KeyA", "KeyS", "KeyD"]);
   function keyDown(code) { if (!keys.has(code)) pressed.add(code); keys.add(code); }
   function keyUp(code) { keys.delete(code); }
   window.addEventListener("keydown", e => { if (handled.has(e.code)) { e.preventDefault(); keyDown(e.code); } });
