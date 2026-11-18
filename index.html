@@ -293,10 +293,24 @@
     rect(x + 25, y - 12, 6, 14, "#f8c943"); rect(x + 30, y - 7, 8, 6, "#f8c943");
     rect(x + 8, y - 12, 4, 4, "#986b38");
   }
+  function drawBoombox(x, y) {
+    const beat = Math.floor(danceTimer * 5) % 2;
+    rect(x + 16, y - 39, 38, 4, "#c8cad5");
+    rect(x + 13, y - 35, 4, 7, "#c8cad5"); rect(x + 53, y - 35, 4, 7, "#c8cad5");
+    rect(x, y - 31, 70, 31, "#60657b"); rect(x + 3, y - 28, 64, 25, "#adb0bc");
+    rect(x + 6, y - 25, 18, 19, "#303548"); rect(x + 46, y - 25, 18, 19, "#303548");
+    rect(x + 10, y - 21, 10, 11, beat ? "#de7b70" : "#7f8a9e");
+    rect(x + 50, y - 21, 10, 11, beat ? "#de7b70" : "#7f8a9e");
+    rect(x + 27, y - 24, 16, 11, "#36394b"); rect(x + 30, y - 21, 10, 5, "#a9e2d5");
+    rect(x + 28, y - 10, 3, 3, "#e65b65"); rect(x + 34, y - 10, 3, 3, "#f7d96c"); rect(x + 40, y - 10, 3, 3, "#a9e2d5");
+    rect(x + 66, y - 47 - beat * 5, 3, 12, "#ffe568");
+    rect(x + 61, y - 38 - beat * 5, 7, 4, "#ffe568");
+  }
   function drawVillain(x, y) {
     if (state === "dying" || state === "gameover") {
       const pose = Math.floor(danceTimer * 5) % 4;
       const bounce = pose % 2 ? -5 : 0;
+      drawBoombox(x + 38, y);
       ctx.save();
       ctx.translate(x + (pose < 2 ? -5 : 5), y + bounce);
       ctx.rotate(pose % 2 ? 0.18 : -0.18);
