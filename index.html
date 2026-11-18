@@ -36,7 +36,7 @@
     <button id="again" data-key="Enter" hidden>PLAY AGAIN</button>
     <button id="restart" data-key="KeyR" hidden>RESTART</button>
   </div>
-  <p class="note">Two hits cost a life. Peels drop you a floor. Grab the katana on floor 2!</p>
+  <p class="note">Two hits cost a life. Peels drop you a floor. Grab the katana on floor 2! Sound starts when you play.</p>
 </main>
 <script>
 (() => {
@@ -50,6 +50,70 @@
   const ladderX = floor => floor % 2 === 0 ? 700 : 100;
   const random = (a, b) => a + Math.random() * (b - a);
   let state = "title", floorCount = INITIAL_FLOORS, player, hazards, lives, hits, sword, spawnTimer, peelTimer, elapsed, deathTimer, danceTimer, notice, noticeTimer;
+  let audio, audioUnavailable = false, musicStep = -1;
+
+  function enableAudio() {
+    if (audioUnavailable) return;
+    if (!audio) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) {
+        audioUnavailable = true;
+        console.error("Sound is unavailable: this browser does not support Web Audio.");
+        return;
+      }
+      try {
+        audio = new AudioContext();
+      } catch (error) {
+        audioUnavailable = true;
+        console.error("Could not start game audio:", error);
+        return;
+      }
+    }
+    if (audio.state === "suspended") audio.resume().catch(error => console.error("Could not resume game audio:", error));
+  }
+  function tone(startFrequency, endFrequency, duration, type, volume) {
+    if (!audio || audio.state !== "running") return;
+    const now = audio.currentTime;
+    const oscillator = audio.createOscillator(), gain = audio.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(startFrequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(endFrequency, now + duration);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    oscillator.connect(gain); gain.connect(audio.destination);
+    oscillator.start(now); oscillator.stop(now + duration);
+  }
+  function noise(duration, volume, frequency) {
+    if (!audio || audio.state !== "running") return;
+    const now = audio.currentTime;
+    const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * duration), audio.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    const source = audio.createBufferSource(), filter = audio.createBiquadFilter(), gain = audio.createGain();
+    source.buffer = buffer;
+    filter.type = "bandpass"; filter.frequency.value = frequency;
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    source.connect(filter); filter.connect(gain); gain.connect(audio.destination);
+    source.start(now); source.stop(now + duration);
+  }
+  function sound(name) {
+    if (name === "jump") tone(300, 650, 0.18, "square", 0.055);
+    if (name === "slice") { noise(0.16, 0.16, 2400); tone(900, 320, 0.12, "sawtooth", 0.025); }
+    if (name === "slip") { tone(600, 110, 0.28, "sawtooth", 0.055); noise(0.14, 0.08, 700); }
+    if (name === "hit") { tone(180, 55, 0.2, "triangle", 0.12); noise(0.17, 0.2, 450); }
+  }
+  function danceMusic() {
+    const step = Math.floor(danceTimer * 5);
+    if (step === musicStep) return;
+    musicStep = step;
+    const melody = [392, 0, 494, 523, 587, 0, 523, 494, 440, 0, 523, 587, 659, 587, 523, 494];
+    const note = melody[step % melody.length];
+    if (note) tone(note, note, 0.14, "square", 0.035);
+    if (step % 4 === 0) tone(115, 48, 0.13, "sine", 0.14);
+    if (step % 4 === 2) noise(0.1, 0.1, 1200);
+    if (step % 2 === 1) noise(0.035, 0.04, 6000);
+  }
 
   function resetRun(floors = INITIAL_FLOORS) {
     floorCount = floors;
@@ -95,7 +159,7 @@
     if (hits >= 2) {
       lives--;
       state = "dying";
-      deathTimer = 0; danceTimer = 0;
+      deathTimer = 0; danceTimer = 0; musicStep = -1;
     } else flash("OUCH! ONE HIT LEFT");
   }
   function update(dt) {
@@ -105,7 +169,10 @@
       return;
     }
     if ((pressed.has("Enter") || pressed.has("KeyR")) && (state === "title" || state === "gameover")) resetRun();
-    if (state === "dying" || state === "gameover") danceTimer += dt;
+    if (state === "dying" || state === "gameover") {
+      danceTimer += dt;
+      danceMusic();
+    }
     if (state === "dying") {
       deathTimer += dt;
       if (deathTimer >= 1.7) {
@@ -122,7 +189,7 @@
     noticeTimer = Math.max(0, noticeTimer - dt);
     player.invulnerable = Math.max(0, player.invulnerable - dt);
     player.attack = Math.max(0, player.attack - dt);
-    if (pressed.has("KeyX") && sword && player.attack <= 0) player.attack = 0.25;
+    if (pressed.has("KeyX") && sword && player.attack <= 0) { player.attack = 0.25; sound("slice"); }
     if (player.climb) {
       player.climb.t += dt * 1.6;
       if (player.climb.t >= 1) {
@@ -139,7 +206,7 @@
     } else {
       const move = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
       if (move) { player.x = Math.max(LEFT + 10, Math.min(RIGHT - 10, player.x + move * 155 * dt)); player.facing = move; }
-      if (pressed.has("Space") && player.jump === 0) player.vy = 290;
+      if (pressed.has("Space") && player.jump === 0) { player.vy = 290; sound("jump"); }
       if (player.jump > 0 || player.vy > 0) {
         player.jump += player.vy * dt;
         player.vy -= 700 * dt;
@@ -173,9 +240,10 @@
           (h.x - player.x) * player.facing > -4 && (h.x - player.x) * player.facing < 48) {
         h.remove = true;
       } else if (Math.abs(h.x - player.x) < (h.type === "melon" ? 22 : 18) && player.jump < (h.type === "melon" ? 30 : 12)) {
-        if (h.type === "melon") { if (player.invulnerable <= 0) { h.remove = true; hitPlayer(); } }
+        if (h.type === "melon") { if (player.invulnerable <= 0) { h.remove = true; sound("hit"); hitPlayer(); } }
         else {
           h.remove = true;
+          sound("slip");
           if (player.floor > 0) {
             player.fall = { from: player.floor, to: player.floor - 1, x: player.x, t: 0 };
             flash("SLIPPERY!");
@@ -327,7 +395,7 @@
     document.getElementById("restart").hidden = state !== "won";
   }
   const handled = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyX", "Enter", "KeyR", "KeyW", "KeyA", "KeyS", "KeyD"]);
-  function keyDown(code) { if (!keys.has(code)) pressed.add(code); keys.add(code); }
+  function keyDown(code) { enableAudio(); if (!keys.has(code)) pressed.add(code); keys.add(code); }
   function keyUp(code) { keys.delete(code); }
   window.addEventListener("keydown", e => { if (handled.has(e.code)) { e.preventDefault(); keyDown(e.code); } });
   window.addEventListener("keyup", e => { if (handled.has(e.code)) { e.preventDefault(); keyUp(e.code); } });
